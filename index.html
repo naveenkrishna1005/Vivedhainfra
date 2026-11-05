@@ -315,6 +315,18 @@ input[aria-invalid=true],select[aria-invalid=true],textarea[aria-invalid=true]{b
 .av{width:48px;height:48px;border-radius:50%;object-fit:cover;flex:none;box-shadow:0 0 0 1px var(--bronze)}
 .fld>label{transition:color .4s,transform .5s var(--ease)}.fld:focus-within>label{color:var(--bronze);transform:translateX(4px)}
 input,select,textarea{transition:border-color .4s,box-shadow .5s var(--ease),background-color .4s}input:focus,select:focus,textarea:focus{background-color:rgba(181,138,90,.06)}
+
+/* ===== live reviews ===== */
+.tag{align-self:flex-start;font-size:11px;font-weight:600;letter-spacing:.14em;text-transform:uppercase;color:var(--silver);border:1px solid var(--line);padding:4px 10px}
+.rv-c.new{animation:newglow 2.4s ease-out 3;box-shadow:0 0 0 1px var(--bronze),0 0 70px rgba(181,138,90,.5)}
+@keyframes newglow{0%{transform:scale(.94);opacity:.4}40%{transform:scale(1.02);opacity:1}100%{transform:none}}
+.rv-c .stars{display:inline-block;animation:starpop 1.1s var(--ease) both}@keyframes starpop{from{transform:scale(.6);opacity:0;letter-spacing:10px}}
+.rv-n{text-align:center;margin-top:18px}
+.hp{position:absolute;left:-9999px;width:1px;height:1px;overflow:hidden}
+.ok2{text-align:center;padding:18px 0}.ok2 h4{font-family:var(--head);font-size:clamp(20px,2.4vw,26px);margin:18px 0 10px;line-height:1.25}.ok2 p{color:var(--silver);font-weight:500;line-height:1.7;margin-bottom:24px}
+.chk{width:84px;height:84px;color:var(--bronze);filter:drop-shadow(0 0 18px rgba(181,138,90,.7))}.chk *{stroke-dasharray:1;stroke-dashoffset:1;animation:draw2 1.2s .2s var(--ease) forwards}.chk path{animation-delay:.9s}@keyframes draw2{to{stroke-dashoffset:0}}
+.bd{display:inline-block;margin-right:10px;padding:2px 10px;font-size:11px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;border:1px solid var(--line)}.bd.published{color:#9be3b0;border-color:#9be3b0}.bd.held{color:var(--bronze);border-color:var(--bronze)}.bd.hidden{color:var(--silver)}
+.reduce .rv-c .stars,.reduce .rv-c.new,.reduce .chk *{animation:none;stroke-dashoffset:0}
 </style>
 </head>
 <body>
@@ -357,10 +369,11 @@ const VM={head:'Our purpose. *Our promise.*',
  mission:{label:'Our mission',quote:'“Turning Visions into *Reality.”*',text:'To deliver reliable engineering, construction and contracting solutions through quality workmanship, thoughtful planning, professional execution and a commitment to customer satisfaction.'}};
 /* Reviews. Only genuine, approved customer reviews belong here. Format: {name:'…',rating:5,text:'…',date:'2026-10-31',project:'optional',photo:'optional data:image/… URI, only with the customer’s permission'} */
 const APPROVED_REVIEWS=[];
-/* Your own review backend (when the site is hosted outside this preview):
-   GET  {url}/reviews?status=approved -> [{id,name,rating,text,date,project}]
-   POST {url}/reviews  {name,rating,text,project} -> stored server-side as PENDING; approve/reject in your own admin tool */
-const REVIEWS_API={url:''};
+/* LIVE REVIEWS with Supabase: run supabase-reviews.sql in your Supabase project, then paste the Project URL and the PUBLIC anon key here.
+   Never paste the service_role key into a website. Leave empty to run without Supabase. */
+const SUPABASE={url:'%%SUPABASE_URL%%',anonKey:'%%SUPABASE_ANON_KEY%%'};
+/* the build step (build.mjs) fills these from the SUPABASE_URL and SUPABASE_ANON_KEY environment variables; the page refuses secret keys */
+const sbReady=()=>/^https:\/\/[a-z0-9-]+\.supabase\.co\/?$/i.test(SUPABASE.url)&&SUPABASE.anonKey.length>20&&!/%%|^sb_secret_/.test(SUPABASE.anonKey);
 const AUTOPLAY_MS=5500;
 /* ================================================ */
 
@@ -518,7 +531,7 @@ const validateReview=r=>{const e={},n=r.name.trim(),t=r.text.trim();
  if(n.length<2)e.name='Please enter your name.';else if(n.length>60)e.name='Please keep your name under 60 characters.';
  if(!(r.rating>=1&&r.rating<=5))e.rating='Please choose a star rating from 1 to 5.';
  if(t.length<20)e.text='Please write at least 20 characters about your experience.';else if(t.length>600)e.text='Please keep your review under 600 characters.';
- if(r.project.trim().length>80)e.project='Please keep the project reference under 80 characters.';
+ if(r.project.trim().length>80)e.project='Please keep the project reference under 80 characters.';if((r.projectType||'').trim().length>60)e.projectType='Please keep the project type under 60 characters.';
  return e};
 const reviewMsg=r=>['*Customer review – VIVEDHA INFRA*','','*Name:* '+r.name,'*Rating:* '+r.rating+'/5','*Project:* '+(r.project||'Not provided'),'','*Review:*',r.text].join('\n');
 const Stars=({n})=>html`<div className="stars" role="img" aria-label=${n+' out of 5 stars'}>${'★'.repeat(n)}<span className="off">${'★'.repeat(5-n)}</span></div>`;
@@ -528,77 +541,139 @@ const StarInput=({value,onChange,invalid,descId})=>{const [hv,setHv]=useState(0)
  const key=e=>{if(e.key==='ArrowRight'||e.key==='ArrowUp'){e.preventDefault();onChange(Math.min(5,(value||0)+1))}if(e.key==='ArrowLeft'||e.key==='ArrowDown'){e.preventDefault();onChange(Math.max(1,(value||2)-1))}};
  return html`<div className="si" role="radiogroup" aria-label="Star rating" aria-invalid=${invalid} aria-describedby=${descId} onMouseLeave=${()=>setHv(0)}>${[1,2,3,4,5].map(k=>html`<button type="button" key=${k} role="radio" aria-checked=${value===k} aria-label=${k+(k===1?' star':' stars')} tabIndex=${(value?value===k:k===1)?0:-1} className=${k<=show?'on':''} onMouseEnter=${()=>setHv(k)} onClick=${()=>onChange(k)} onKeyDown=${key}>★</button>`)}</div>`};
 
+const spamCheck=r=>{const t=r.text+' '+r.name,L=t.replace(/[^A-Za-z]/g,''),C=t.replace(/[^A-Z]/g,'').length;
+ if(/(https?:\/\/|www\.|[a-z0-9-]+\.(com|net|org|in|io|xyz|ru|cn|info|biz)(\/|\b))/i.test(t))return'link';
+ if(/([a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}|(\+?\d[\s-]?){10,})/i.test(r.text))return'contact details';
+ if(/(.)\1{6,}/i.test(r.text))return'repeated characters';
+ if(L.length>30&&C/L.length>.7)return'capitals';
+ if(/\b(fuck|fucking|shit|bitch|bastard|asshole|dick|pussy|cunt|slut)\b/i.test(t))return'abusive language';
+ if(/(viagra|casino|crypto|forex|bitcoin|click here|free money|backlink|seo service|loan offer|javascript:|onerror\s*=)/i.test(t))return'spam keywords';
+ return''};
+const clean=v=>String(v||'').replace(/<[^>]*>/g,'').replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g,'').replace(/[ \t]+/g,' ').trim();
+const byTs=(a,b)=>String(b.ts||b.date||'').localeCompare(String(a.ts||a.date||''));
+const loadScript=src=>new Promise((ok,no)=>{const e=document.createElement('script');e.src=src;e.onload=ok;e.onerror=no;document.head.appendChild(e)});
+const COLS='id,created_at,name,rating,body,project_type,project_ref,status';
+const fromSb=r=>({id:r.id,name:r.name,rating:r.rating,text:r.body,date:String(r.created_at||'').slice(0,10),ts:r.created_at,project:[r.project_type,r.project_ref].filter(Boolean).join(' · '),status:r.status});
+const fromDb=(d,status)=>{const x=d.data();return{id:d.id,name:x.name,rating:x.rating,text:x.text,date:x.date,ts:x.createdAt||x.date,project:[x.projectType,x.project].filter(Boolean).join(' · '),status,_raw:x}};
+
+/* Backend 1: Supabase (public website). Backend 2: this preview's shared database (signed-in team members only). */
+const supaBackend=async()=>{
+ if(!sbReady())return null;
+ if(!window.supabase)await loadScript('https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js');
+ const c=window.supabase.createClient(SUPABASE.url,SUPABASE.anonKey);
+ const isAdmin=async uid=>{const {data}=await c.from('review_admins').select('user_id').eq('user_id',uid);return !!(data&&data.length)};
+ return{mode:'supabase',
+  subscribe(cb){let dead=false,t;const load=async()=>{const {data,error}=await c.from('reviews').select(COLS).eq('status','published').order('created_at',{ascending:false}).limit(60);if(!dead&&!error&&data)cb(data.map(fromSb))};
+   load();const ch=c.channel('reviews-live').on('postgres_changes',{event:'*',schema:'public',table:'reviews'},()=>{clearTimeout(t);t=setTimeout(load,150)}).subscribe();
+   return()=>{dead=true;clearTimeout(t);c.removeChannel(ch)}},
+  async submit(r){const {data,error}=await c.rpc('submit_review',{p_name:r.name,p_rating:r.rating,p_body:r.text,p_project_type:r.projectType||null,p_project_ref:r.project||null,p_hp:r.hp||''});
+   if(error){const m=String(error.message||'');throw Object.assign(new Error(m),{code:/rate_limited/.test(m)?'rate':/duplicate/.test(m)?'dup':/invalid_/.test(m)?'invalid':'fail'})}return data},
+  admin:{needsLogin:true,
+   async session(){const {data}=await c.auth.getSession();return data&&data.session?await isAdmin(data.session.user.id):false},
+   async login(email,password){const {data,error}=await c.auth.signInWithPassword({email,password});if(error)throw error;if(!(await isAdmin(data.user.id))){await c.auth.signOut();throw new Error('not-admin')}},
+   async logout(){await c.auth.signOut()},
+   async list(){const {data,error}=await c.from('reviews').select(COLS).order('created_at',{ascending:false}).limit(200);if(error)throw error;return data.map(fromSb)},
+   async setStatus(row,status){const {error}=await c.from('reviews').update({status}).eq('id',row.id);if(error)throw error},
+   async remove(row){const {error}=await c.from('reviews').delete().eq('id',row.id);if(error)throw error}}}};
+const dbBackend=async()=>{
+ if(!window.claude||!window.claude.use)return null;
+ const [db,user]=await Promise.all([window.claude.use('db'),window.claude.use('user')]);if(!db)return null;
+ const isAdm=user?await user.canEdit():false,A=db.collection('reviews_approved'),P=db.collection('reviews_pending');
+ return{mode:'db',
+  subscribe(cb){return A.onSnapshot(s=>cb(s.docs.map(d=>fromDb(d,'published'))),()=>{})},
+  async submit(r){const held=!!spamCheck(r),rec={name:r.name,rating:r.rating,text:r.text,projectType:r.projectType||'',project:r.project||'',date:new Date().toISOString().slice(0,10),createdAt:new Date().toISOString(),status:held?'held':'published'};
+   await (held?P:A).doc('r'+Date.now().toString(36)+Math.random().toString(36).slice(2,8)).set(rec);return rec.status},
+  admin:isAdm?{needsLogin:false,
+   async list(){const [a,p]=await Promise.all([A.get(),P.get()]);return[...a.docs.map(d=>fromDb(d,'published')),...p.docs.map(d=>fromDb(d,'held'))].sort(byTs)},
+   async setStatus(row,status){const pub=status==='published';if(pub===(row.status==='published'))return;await (pub?A:P).doc(row.id).set({...row._raw,status:pub?'published':'held'});await (pub?P:A).doc(row.id).delete()},
+   async remove(row){await (row.status==='published'?A:P).doc(row.id).delete()}}:null}};
+
 const ReviewModal=({onClose,onSubmit})=>{
- const empty={name:'',rating:0,text:'',project:''};
+ const empty={name:'',rating:0,text:'',projectType:'',project:'',hp:''};
  const [f,setF]=useState(empty),[er,setEr]=useState({}),[busy,setBusy]=useState(false),[res,setRes]=useState(null),lock=useRef(false),first=useRef();
  useEffect(()=>{const prev=document.activeElement;first.current&&first.current.focus();window.__lenis&&window.__lenis.stop();document.body.style.overflow='hidden';
   const k=e=>{if(e.key==='Escape')onClose()};addEventListener('keydown',k);
   return()=>{removeEventListener('keydown',k);window.__lenis&&window.__lenis.start();document.body.style.overflow='';prev&&prev.focus&&prev.focus()}},[]);
  const set=k=>e=>{const nf={...f,[k]:e.target.value};setF(nf);if(er[k])setEr(p=>({...p,[k]:validateReview(nf)[k]}));setRes(r=>r&&r.t==='err'?null:r)};
- const setRating=v=>{const nf={...f,rating:v};setF(nf);if(er.rating)setEr(p=>({...p,rating:undefined}))};
+ const setRating=v=>{setF({...f,rating:v});if(er.rating)setEr(p=>({...p,rating:undefined}))};
  const submit=async e=>{e.preventDefault();if(lock.current)return;const x=validateReview(f);setEr(x);const bad=Object.keys(x);
   if(bad.length){setRes({t:'err',m:'Please correct the highlighted fields and try again.'});const el=document.getElementById('rv-'+bad[0]);el&&el.focus();return}
+  try{const last=+localStorage.getItem('vi_rv_last')||0;if(Date.now()-last<60000){setRes({t:'err',m:'Please wait a minute before submitting another review.'});return}}catch(_){}
   lock.current=true;setBusy(true);setRes(null);
-  const r={name:f.name.trim(),rating:f.rating,text:f.text.trim(),project:f.project.trim()};
-  try{await onSubmit(r);setRes({t:'ok'});setF(empty);setEr({})}
-  catch(err){setRes({t:'err',code:err&&err.code,r,m:err&&err.code==='no-backend'?'Reviews cannot be stored on the website from this page yet, so nothing has been submitted. You can send your review to us directly instead; your details are still here.':'We could not submit your review just now. Nothing has been stored. Please try again, or send it to us directly.'})}
+  const r={name:clean(f.name),rating:f.rating,text:clean(f.text),projectType:clean(f.projectType),project:clean(f.project),hp:f.hp};
+  try{const status=await onSubmit(r);try{localStorage.setItem('vi_rv_last',String(Date.now()))}catch(_){}setRes({t:'ok',status});setF(empty);setEr({})}
+  catch(err){const c=err&&err.code,m={'no-backend':'Reviews cannot be stored on the website from this page yet, so nothing has been submitted. You can send your review to us directly instead; your details are still here.',rate:'Several reviews have been sent from your connection recently. Please try again later.',dup:'A review with this exact text has already been received.',invalid:'Some details were not accepted. Please check the form and try again.'}[c]||'We could not submit your review just now. Nothing has been stored. Please try again, or send it to us directly.';
+   setRes({t:'err',code:c,r,m})}
   finally{lock.current=false;setBusy(false)}};
- const r2=res&&res.r||f,wa='https://wa.me/'+SITE.wa+'?text='+encodeURIComponent(reviewMsg({...r2,name:r2.name.trim(),text:r2.text.trim(),project:r2.project.trim()})),mail='mailto:'+SITE.email+'?subject='+encodeURIComponent('Customer review')+'&body='+encodeURIComponent(reviewMsg(r2).replace(/\*/g,''));
+ const r2=res&&res.r||f,wa='https://wa.me/'+SITE.wa+'?text='+encodeURIComponent(reviewMsg({...r2,name:clean(r2.name),text:clean(r2.text),project:[clean(r2.projectType),clean(r2.project)].filter(Boolean).join(' · ')})),mail='mailto:'+SITE.email+'?subject='+encodeURIComponent('Customer review')+'&body='+encodeURIComponent(reviewMsg({...r2,project:[r2.projectType,r2.project].filter(Boolean).join(' · ')}).replace(/\*/g,''));
+ const ok=res&&res.t==='ok';
  return html`<div className="rm" role="dialog" aria-modal="true" aria-labelledby="rm-t" onMouseDown=${e=>e.target===e.currentTarget&&onClose()}><div className="rm-box" data-lenis-prevent>
   <button type="button" className="rm-x" onClick=${onClose} aria-label="Close review form">✕</button>
-  <h3 id="rm-t">Write a review</h3><p className="note">Share your experience with VIVEDHA INFRA. Reviews are checked by our team before they appear on the site.</p>
-  ${res&&res.t==='ok'?html`<div className="stt" role="status"><strong>Thank you.</strong> Your review has been submitted and is waiting for approval. It will appear on this page once our team approves it.<div className="acts"><button type="button" className="btn solid" onClick=${onClose}>Close</button></div></div>`:html`
+  <h3 id="rm-t">${ok?'Review received':'Write a review'}</h3>
+  ${ok?html`<div className="ok2" role="status"><svg className="chk" viewBox="0 0 52 52" fill="none" stroke="currentColor" strokeWidth="2.5" aria-hidden="true"><circle pathLength="1" cx="26" cy="26" r="24"/><path pathLength="1" d="M15 27l8 8 14-16"/></svg>
+    <h4>Thank you for sharing your experience.</h4>
+    <p>${res.status==='published'?'Your review is now live on this page and visible to every visitor.':'Your review has been received and is being checked by our team before it appears on the site.'}</p>
+    <button type="button" className="btn solid" onClick=${onClose}>${res.status==='published'?'See my review':'Close'}</button></div>`:html`
+  <p className="note">Share your experience with VIVEDHA INFRA. Reviews are written by customers and are not independently verified.</p>
   <form className="frm" onSubmit=${submit} noValidate aria-label="Review form">
+   <div className="hp" aria-hidden="true"><label>Leave this empty<input type="text" tabIndex="-1" autoComplete="off" value=${f.hp} onChange=${set('hp')}/></label></div>
    <${Field} id="rv-name" label="Your name" req err=${er.name}><input ref=${first} id="rv-name" type="text" value=${f.name} onChange=${set('name')} placeholder="e.g. Ramesh Kumar" autoComplete="name" maxLength="60" aria-required="true" aria-invalid=${!!er.name} aria-describedby=${er.name?'rv-name-e':undefined}/><//>
    <div className="fld"><label id="rv-rl">Your rating<span className="req"> *</span></label><${StarInput} value=${f.rating} onChange=${setRating} invalid=${!!er.rating} descId=${er.rating?'rv-rating-e':undefined}/>${er.rating&&html`<div className="err" id="rv-rating-e" role="alert">${er.rating}</div>`}</div>
    <${Field} id="rv-text" label="Your review" req err=${er.text} hint=${f.text.trim().length+' / 600 characters (minimum 20)'}><textarea id="rv-text" rows="5" value=${f.text} onChange=${set('text')} placeholder="Tell us about your experience with our work" maxLength="600" aria-required="true" aria-invalid=${!!er.text} aria-describedby=${er.text?'rv-text-e':undefined} data-lenis-prevent/><//>
-   <${Field} id="rv-project" label="Project reference (optional)" err=${er.project}><input id="rv-project" type="text" value=${f.project} onChange=${set('project')} placeholder="e.g. Home construction, Mangadu" maxLength="80" aria-invalid=${!!er.project} aria-describedby=${er.project?'rv-project-e':undefined}/><//>
+   <div className="row"><${Field} id="rv-projectType" label="Project type (optional)" err=${er.projectType}><input id="rv-projectType" type="text" value=${f.projectType} onChange=${set('projectType')} placeholder="e.g. Residential" maxLength="60" aria-invalid=${!!er.projectType}/><//>
+   <${Field} id="rv-project" label="Project reference (optional)" err=${er.project}><input id="rv-project" type="text" value=${f.project} onChange=${set('project')} placeholder="e.g. Villa, Mangadu" maxLength="80" aria-invalid=${!!er.project}/><//></div>
    <div><button type="submit" className="btn solid" disabled=${busy}>${busy?'Submitting…':'Submit review'}</button></div>
-   ${res&&res.t==='err'&&html`<div className="stt bad" role="alert"><strong>Not submitted.</strong> ${res.m}${res.code&&html`<div className="acts"><a className="btn solid" href=${wa} target="_blank" rel="noopener noreferrer">Send via WhatsApp</a><a className="btn" href=${mail}>Send by email</a></div>`}</div>`}
+   ${res&&res.t==='err'&&html`<div className="stt bad" role="alert"><strong>Not submitted.</strong> ${res.m}${(res.code==='no-backend'||res.code==='fail'||!res.code&&res.r)&&html`<div className="acts"><a className="btn solid" href=${wa} target="_blank" rel="noopener noreferrer">Send via WhatsApp</a><a className="btn" href=${mail}>Send by email</a></div>`}</div>`}
   </form>`}</div></div>`};
 
-const ModPanel=({items,onDo})=>{const [b,setB]=useState(''),[err,setErr]=useState('');
- const act=async(p,s)=>{setB(p.id);setErr('');try{await onDo(p,s)}catch(e){setErr('Could not update this review. Please try again.')}setB('')};
- return html`<div className="mod" aria-label="Review moderation (editors only)"><h3>Moderation <small>visible to editors only</small></h3>${err&&html`<div className="err" role="alert">${err}</div>`}
-  ${items.length===0?html`<p className="note">No reviews are waiting for approval.</p>`:items.map(p=>html`<div className="mod-i" key=${p.id}><div><${Stars} n=${p.rating}/><strong>${p.name}</strong> <span className="note">${fmtDate(p.date)}${p.project?' · '+p.project:''}</span><p>${p.text}</p></div>
-   <div className="acts"><button type="button" className="btn solid" disabled=${b===p.id} onClick=${()=>act(p,'approved')}>Approve</button><button type="button" className="btn" disabled=${b===p.id} onClick=${()=>act(p,'rejected')}>Reject</button></div></div>`)}</div>`};
+const AdminPanel=({admin})=>{
+ const [authed,setAuthed]=useState(!admin.needsLogin),[chk,setChk]=useState(!!admin.needsLogin),[rows,setRows]=useState([]),[b,setB]=useState(''),[err,setErr]=useState(''),[cf,setCf]=useState(''),[lg,setLg]=useState({email:'',pw:''});
+ const load=async()=>{try{setRows(await admin.list());setErr('')}catch(e){setErr('Could not load reviews.')}};
+ useEffect(()=>{let dead=false;(async()=>{let ok=!admin.needsLogin;if(!ok)ok=await admin.session().catch(()=>false);if(dead)return;setAuthed(ok);setChk(false);if(ok)load()})();return()=>{dead=true}},[]);
+ const login=async e=>{e.preventDefault();setErr('');setB('login');try{await admin.login(lg.email.trim(),lg.pw);setAuthed(true);setLg({email:'',pw:''});await load()}catch(x){setErr(x&&x.message==='not-admin'?'This account is not a review administrator.':'Sign-in failed. Check your email and password.')}setB('')};
+ const act=async(row,fn)=>{setB(row.id);setErr('');try{await fn();setCf('');await load()}catch(x){setErr('That change could not be saved.')}setB('')};
+ const n=s=>rows.filter(r=>r.status===s).length;
+ return html`<div className="mod" id="review-admin" aria-label="Review moderation, administrators only"><h3>Review moderation <small>administrators only</small></h3>
+  ${err&&html`<div className="err" role="alert">${err}</div>`}
+  ${chk?html`<p className="note">Checking sign-in…</p>`:!authed?html`<form className="frm" onSubmit=${login} aria-label="Administrator sign-in"><p className="note">Sign in with an administrator account.</p>
+    <${Field} id="ad-email" label="Admin email"><input id="ad-email" type="email" autoComplete="username" value=${lg.email} onChange=${e=>setLg({...lg,email:e.target.value})}/><//>
+    <${Field} id="ad-pw" label="Password"><input id="ad-pw" type="password" autoComplete="current-password" value=${lg.pw} onChange=${e=>setLg({...lg,pw:e.target.value})}/><//>
+    <div><button type="submit" className="btn solid" disabled=${b==='login'}>${b==='login'?'Signing in…':'Sign in'}</button></div></form>`:html`
+   <p className="note">${n('held')} pending · ${n('published')} approved · ${n('hidden')} rejected</p>
+   <div className="acts" style=${{marginBottom:12}}><button type="button" className="btn" onClick=${load}>Refresh</button>${admin.logout&&html`<button type="button" className="btn" onClick=${async()=>{await admin.logout();setAuthed(false);setRows([])}}>Sign out</button>`}</div>
+   ${rows.length===0?html`<p className="note">There are no reviews yet.</p>`:rows.slice().sort((x,y)=>({held:0,published:1,hidden:2})[x.status]-({held:0,published:1,hidden:2})[y.status]).map(p=>html`<div className="mod-i" key=${p.id}><div><span className=${'bd '+p.status}>${({published:'approved',held:'pending',hidden:'rejected'})[p.status]||p.status}</span><${Stars} n=${p.rating}/><strong>${p.name}</strong> <span className="note">${fmtDate(p.date)}${p.project?' · '+p.project:''}</span><p>${p.text}</p></div>
+    <div className="acts">${p.status!=='published'?html`<button type="button" className="btn solid" disabled=${b===p.id} onClick=${()=>act(p,()=>admin.setStatus(p,'published'))}>Approve</button>`:null}${p.status!=='hidden'?html`<button type="button" className="btn" disabled=${b===p.id} onClick=${()=>act(p,()=>admin.setStatus(p,'hidden'))}>Reject</button>`:null}
+     <button type="button" className="btn" disabled=${b===p.id} onClick=${()=>cf===p.id?act(p,()=>admin.remove(p)):setCf(p.id)}>${cf===p.id?'Confirm delete':'Delete'}</button></div></div>`)}`}</div>`};
 
-const Slider=({items})=>{const [w,setW]=useState(innerWidth),[i,setI]=useState(0),[hold,setHold]=useState(false),tx=useRef(0);
+const Slider=({items,fresh})=>{const [w,setW]=useState(innerWidth),[i,setI]=useState(0),[hold,setHold]=useState(false),tx=useRef(0);
+ useEffect(()=>{if(fresh)setI(0)},[fresh]);
  useEffect(()=>{const f=()=>setW(innerWidth);addEventListener('resize',f);return()=>removeEventListener('resize',f)},[]);
  const n=items.length,pv=Math.min(w>=1000?3:w>=640?2:1,n),max=Math.max(0,n-pv),cur=Math.min(i,max);
  const go=d=>setI(x=>{const c=Math.min(x,max),t=c+d;return t>max?0:t<0?max:t});
  useEffect(()=>{if(reduce||hold||max===0)return;const t=setInterval(()=>go(1),AUTOPLAY_MS);return()=>clearInterval(t)},[hold,max,n]);
  return html`<div className="sl" role="region" aria-roledescription="carousel" aria-label="Customer reviews" style=${{maxWidth:pv<3?(pv*480+(pv-1)*20)+'px':'none'}} onMouseEnter=${()=>setHold(true)} onMouseLeave=${()=>setHold(false)} onFocus=${()=>setHold(true)} onBlur=${()=>setHold(false)}>
   <div className="sl-vp" onTouchStart=${e=>{tx.current=e.touches[0].clientX;setHold(true)}} onTouchEnd=${e=>{const d=e.changedTouches[0].clientX-tx.current;if(Math.abs(d)>45)go(d<0?1:-1);setHold(false)}}>
-   <div className="sl-tr" style=${{'--i':cur,'--pv':pv}}>${items.map(r=>html`<article key=${r.id} className="rv-c"><span className="q" aria-hidden="true">“</span><${Stars} n=${r.rating}/><p className="rt">${r.text}</p>
+   <div className="sl-tr" style=${{'--i':cur,'--pv':pv}}>${items.map(r=>html`<article key=${r.id} className=${'rv-c'+(r.id===fresh?' new':'')}><span className="q" aria-hidden="true">“</span><span className="tag">Customer-submitted</span><${Stars} n=${r.rating}/><p className="rt">${r.text}</p>
     <footer>${/^data:image\//.test(r.photo||'')?html`<img className="av" src=${r.photo} alt=${r.name}/>`:null}<div><strong>${r.name}</strong><span>${fmtDate(r.date)}</span>${r.project?html`<span className="pj">${r.project}</span>`:null}</div></footer></article>`)}</div></div>
   ${max>0&&html`<div className="sl-nav"><button type="button" className="sl-b" onClick=${()=>go(-1)} aria-label="Previous review">←</button>
    <div className="sl-dots">${Array.from({length:max+1},(_,k)=>html`<button type="button" key=${k} className=${'dot'+(k===cur?' on':'')} aria-label=${'Go to review '+(k+1)} aria-current=${k===cur} onClick=${()=>setI(k)}/>`)}</div>
    <button type="button" className="sl-b" onClick=${()=>go(1)} aria-label="Next review">→</button></div>`}</div>`};
 
-const Reviews=()=>{const [dbh,setDbh]=useState(null),[live,setLive]=useState([]),[pend,setPend]=useState([]),[open,setOpen]=useState(false),op=useRef();
- useEffect(()=>{let dead=false;const off=[];
-  (async()=>{
-   if(REVIEWS_API.url){try{const r=await fetch(REVIEWS_API.url+'/reviews?status=approved');if(!dead)setLive(await r.json())}catch(e){}return}
-   if(!window.claude||!window.claude.use)return;
-   const [db,user]=await Promise.all([window.claude.use('db'),window.claude.use('user')]);if(dead||!db)return;
-   const admin=user?await user.canEdit():false;if(dead)return;setDbh({db,admin});
-   const map=s=>s.docs.map(d=>({id:d.id,...d.data()}));
-   off.push(db.collection('reviews_approved').onSnapshot(s=>setLive(map(s)),()=>{}));
-   if(admin)off.push(db.collection('reviews_pending').onSnapshot(s=>setPend(map(s)),()=>{}));
-  })();return()=>{dead=true;off.forEach(f=>f())}},[]);
- const all=[...APPROVED_REVIEWS.map((r,k)=>({...r,id:'s'+k})),...live].filter(r=>r&&r.text&&r.name&&r.rating>=1&&r.rating<=5).map(r=>({...r,rating:Math.round(r.rating)})).sort((a,b)=>String(b.date||'').localeCompare(String(a.date||'')));
- useEffect(()=>{const t=setTimeout(()=>ScrollTrigger.refresh(),350);return()=>clearTimeout(t)},[all.length,pend.length]);
- const submit=async r=>{const rec={...r,date:new Date().toISOString().slice(0,10),status:'pending',createdAt:new Date().toISOString()};
-  if(REVIEWS_API.url){const res=await fetch(REVIEWS_API.url+'/reviews',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(r)});if(!res.ok)throw new Error('server');return}
-  if(!dbh)throw Object.assign(new Error('no backend'),{code:'no-backend'});
-  await dbh.db.collection('reviews_pending').doc('r'+Date.now().toString(36)+Math.random().toString(36).slice(2,8)).set(rec)};
- const moderate=async(p,status)=>{const {id,...d}=p;await dbh.db.collection(status==='approved'?'reviews_approved':'reviews_rejected').doc(id).set({...d,status,moderatedAt:new Date().toISOString()});await dbh.db.collection('reviews_pending').doc(id).delete()};
- const openForm=()=>{op.current=document.activeElement;setOpen(true)};
+const Reviews=()=>{const [be,setBe]=useState(null),[items,setItems]=useState([]),[open,setOpen]=useState(false),[adm,setAdm]=useState(location.hash==='#review-admin'),[fresh,setFresh]=useState(null),seen=useRef(null);
+ useEffect(()=>{let dead=false,off=()=>{};
+  (async()=>{let b=null;try{b=await supaBackend()}catch(e){b=null}if(!b){try{b=await dbBackend()}catch(e){b=null}}if(dead||!b)return;setBe(b);
+   off=b.subscribe(rows=>{if(dead)return;setItems(rows);const ids=new Set(rows.map(r=>r.id));if(seen.current){const nw=rows.find(r=>!seen.current.has(r.id));if(nw){setFresh(nw.id);setTimeout(()=>setFresh(f=>f===nw.id?null:f),9000)}}seen.current=ids})})();
+  const h=()=>setAdm(location.hash==='#review-admin');addEventListener('hashchange',h);
+  return()=>{dead=true;off();removeEventListener('hashchange',h)}},[]);
+ const all=[...items,...APPROVED_REVIEWS.map((r,k)=>({...r,id:'s'+k}))].filter(r=>r&&r.text&&r.name&&r.rating>=1&&r.rating<=5).map(r=>({...r,rating:Math.round(r.rating)})).sort(byTs);
+ useEffect(()=>{const t=setTimeout(()=>ScrollTrigger.refresh(),350);return()=>clearTimeout(t)},[all.length]);
+ const submit=r=>be?be.submit(r):Promise.reject(Object.assign(new Error('no backend'),{code:'no-backend'}));
+ const openForm=()=>setOpen(true);
+ const showAdmin=be&&be.admin&&(be.mode==='db'||adm);
  return html`<section id="reviews" className="rv"><div className="eyebrow" data-r>Client experiences</div><${Split} t="What our *clients* say"/>
   <div className="rv-h" data-r><p className="rv-s">Every project is built on trust, commitment and lasting relationships.</p><button type="button" className="btn solid" onClick=${openForm}>Write a review</button></div>
-  <div className="rv-b">${all.length?html`<${Slider} items=${all}/>`:html`<div className="rv-e"><span className="q" aria-hidden="true">“</span><h3>Have you worked with VIVEDHA INFRA? Share your experience with us.</h3><p>We publish only genuine reviews from our clients. Yours could be the first.</p><button type="button" className="btn" onClick=${openForm}>Share your experience</button></div>`}</div>
-  ${dbh&&dbh.admin&&html`<${ModPanel} items=${pend} onDo=${moderate}/>`}
+  <div className="rv-b">${all.length?html`<${Slider} items=${all} fresh=${fresh}/><p className="note rv-n">Reviews are written by customers and have not been independently verified.</p>`:html`<div className="rv-e"><span className="q" aria-hidden="true">“</span><h3>Have you worked with VIVEDHA INFRA? Share your experience with us.</h3><p>We publish only genuine reviews from our clients. Yours could be the first.</p><button type="button" className="btn" onClick=${openForm}>Share your experience</button></div>`}</div>
+  ${showAdmin&&html`<${AdminPanel} admin=${be.admin}/>`}
   ${open&&html`<${ReviewModal} onClose=${()=>setOpen(false)} onSubmit=${submit}/>`}</section>`};
 
 function App(){const [go,setGo]=useState(false),[done,setDone]=useState(false),[lb,setLb]=useState(null),[menu,setMenu]=useState(false),fr=useRef();

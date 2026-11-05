@@ -1,0 +1,6 @@
+-- OPTIONAL, NOT applied. Today clean reviews publish instantly and flagged ones are held.
+-- To make EVERY review wait for admin approval, run this in the SQL Editor
+-- (or copy the whole submit_review function and change `v_status text := 'published'` to 'held'):
+-- 1) open supabase/migrations/20261102120000_baseline_reviews.sql
+-- 2) in submit_review change:   v_status text := 'published';   ->   v_status text := 'held';
+-- 3) run only the create or replace function public.submit_review(...) block.
