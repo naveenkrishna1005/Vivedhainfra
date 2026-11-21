@@ -24,10 +24,71 @@ if (url && key) {
   if (!html.includes('%%SUPABASE_URL%%')) fail('index.html has no %%SUPABASE_URL%% placeholder.');
   html = html.replaceAll('%%SUPABASE_URL%%', url).replaceAll('%%SUPABASE_ANON_KEY%%', key);
 }
-// Safety net: never publish a page whose inline script cannot even be parsed (Vercel then keeps the previous deployment).
-const scripts = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)];
-try { new Script(scripts[scripts.length - 1][1]); } catch (e) { fail('inline script has a syntax error: ' + e.message); }
+
+// Validate every inline classic JavaScript block. External scripts, ES modules and
+// non-JavaScript data blocks (for example application/ld+json) are intentionally skipped.
+const scriptTags = [...html.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script\s*>/gi)];
+for (let i = 0; i < scriptTags.length; i++) {
+  const attrs = scriptTags[i][1];
+  const code = scriptTags[i][2];
+  if (/\bsrc\s*=/.test(attrs)) continue;
+  const type = attrs.match(/\btype\s*=\s*["']([^"']+)["']/i)?.[1]?.trim().toLowerCase() || '';
+  if (type === 'module' || (type && !['text/javascript', 'application/javascript'].includes(type))) continue;
+  try {
+    new Script(code, { filename: `index.html inline script ${i + 1}` });
+  } catch (e) {
+    fail(`inline script ${i + 1} has a syntax error: ${e.message}`);
+  }
+}
+
+// Add each favicon reference that is missing, without suppressing the other icon links
+// when index.html already contains one favicon reference.
+const iconLinks = [
+  ['favicon.ico', '<link rel="icon" href="/favicon.ico" sizes="16x16 32x32 48x48">'],
+  ['favicon-32x32.png', '<link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">'],
+  ['favicon-16x16.png', '<link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png">'],
+  ['apple-touch-icon.png', '<link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">'],
+  ['site.webmanifest', '<link rel="manifest" href="/site.webmanifest">'],
+];
+const presentLinks = iconLinks.filter(([file]) => existsSync(file));
+const existingLinkTags = [...html.matchAll(/<link\b[^>]*>/gi)].map((match) => match[0]);
+const missingLinks = presentLinks.filter(([file]) => {
+  return !existingLinkTags.some((tag) => {
+    const href = tag.match(/\bhref\s*=\s*["']([^"']+)["']/i)?.[1];
+    if (!href) return false;
+    try {
+      return new URL(href, 'https://vivedhainfra.com').pathname === `/${file}`;
+    } catch {
+      return false;
+    }
+  });
+});
+
+if (missingLinks.length) {
+  if (!/<\/head\s*>/i.test(html)) fail('index.html has no </head> to add favicon links to.');
+  html = html.replace(/<\/head\s*>/i, missingLinks.map(([, tag]) => tag).join('\n') + '\n</head>');
+}
+
 mkdirSync('dist', { recursive: true });
 writeFileSync('dist/index.html', html);
-for (const f of readdirSync('.')) if (/^google[0-9a-f]+\.html$/.test(f)) copyFileSync(f, 'dist/' + f); // keep Search Console verification file
+
+// Copy every favicon asset that exists, including the Android launcher icons referenced by the manifest.
+const iconFiles = [
+  'favicon.ico',
+  'favicon-16x16.png',
+  'favicon-32x32.png',
+  'apple-touch-icon.png',
+  'android-chrome-192x192.png',
+  'android-chrome-512x512.png',
+  'site.webmanifest',
+];
+for (const file of iconFiles) {
+  if (existsSync(file)) copyFileSync(file, `dist/${file}`);
+}
+
+// Keep the existing Google Search Console verification-file behavior unchanged.
+for (const file of readdirSync('.')) {
+  if (/^google[0-9a-f]+\.html$/.test(file)) copyFileSync(file, `dist/${file}`);
+}
+
 console.log('[build] dist/index.html written' + (url && key ? ' with Supabase configured' : ' (Supabase not configured)'));
